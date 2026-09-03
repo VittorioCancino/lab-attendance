@@ -2,9 +2,13 @@
 
 import { useEffect } from 'react';
 
-export function QrDisplayRefresh({ refreshAt }: { refreshAt: number }) {
+export function QrDisplayRefresh({
+  refreshAfterMs,
+}: {
+  refreshAfterMs: number;
+}) {
   useEffect(() => {
-    const delay = Math.max(1_000, refreshAt - Date.now() + 250);
+    const delay = Math.max(1_000, refreshAfterMs);
     const timeout = window.setTimeout(() => {
       window.location.reload();
     }, delay);
@@ -12,7 +16,7 @@ export function QrDisplayRefresh({ refreshAt }: { refreshAt: number }) {
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [refreshAt]);
+  }, [refreshAfterMs]);
 
   return null;
 }

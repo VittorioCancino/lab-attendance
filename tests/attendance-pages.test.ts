@@ -9,6 +9,7 @@ interface TestElementProps {
 const mocks = vi.hoisted(() => ({
   AttendanceScanConfirmation: () => null,
   QRCodeSVG: () => null,
+  QrDisplayRefresh: () => null,
   ScanQrExchange: () => null,
   attendeeLogoutAction: vi.fn(),
   cookies: vi.fn(),
@@ -43,9 +44,7 @@ vi.mock('@/components/display/DisplayActivationForm', () => ({
   },
 }));
 vi.mock('@/components/display/QrDisplayRefresh', () => ({
-  QrDisplayRefresh: function QrDisplayRefreshStub() {
-    return null;
-  },
+  QrDisplayRefresh: mocks.QrDisplayRefresh,
 }));
 vi.mock('@/lib/auth/current-user', () => ({
   getCurrentUserContext: mocks.getCurrentUserContext,
@@ -247,8 +246,13 @@ describe('public QR display', () => {
       page,
       (element) => element.type === mocks.QRCodeSVG,
     );
+    const refreshElement = findElement(
+      page,
+      (element) => element.type === mocks.QrDisplayRefresh,
+    );
 
     expect(collectText(page)).toContain('Entradas cerradas');
+    expect(refreshElement?.props.refreshAfterMs).toBe(60_000);
     expect(qrElement).not.toBeNull();
     expect(qrElement?.props.value).toBe(
       'https://lab.example.test/scan#rotating-token',

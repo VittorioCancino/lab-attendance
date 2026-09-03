@@ -114,51 +114,38 @@ export async function getManagerAttendanceData(
 
   return client.$transaction(
     async (transaction) => {
-      const [currentPresence, registeredAttendees, totalCount] =
-        await Promise.all([
-          transaction.attendanceVisit.findMany({
-            where: { ...attendeeVisitScope, checkedOutAt: null },
-            orderBy: [{ checkedInAt: 'asc' }, { id: 'asc' }],
+      // Prisma 7 fans out sibling relation reads on one transaction connection.
+      // Load scalar visits and their related records sequentially instead.
+      const currentPresence = await transaction.attendanceVisit.findMany({
+        where: { ...attendeeVisitScope, checkedOutAt: null },
+        orderBy: [{ checkedInAt: 'asc' }, { id: 'asc' }],
+        select: {
+          checkInManagerUserId: true,
+          checkInMethod: true,
+          checkedInAt: true,
+          id: true,
+          userId: true,
+        },
+      });
+      const registeredAttendees = await transaction.labMembership.findMany({
+        where: { labId, role: 'ATTENDEE' },
+        orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }],
+        select: {
+          createdAt: true,
+          isActive: true,
+          user: {
             select: {
-              checkInManager: {
-                select: { user: { select: { name: true } } },
-              },
-              checkInMethod: true,
-              checkedInAt: true,
-              id: true,
-              membership: {
-                select: {
-                  isActive: true,
-                  user: {
-                    select: {
-                      email: true,
-                      isActive: true,
-                      name: true,
-                    },
-                  },
-                  userId: true,
-                },
-              },
-            },
-          }),
-          transaction.labMembership.findMany({
-            where: { labId, role: 'ATTENDEE' },
-            orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }],
-            select: {
-              createdAt: true,
+              email: true,
               isActive: true,
-              user: {
-                select: {
-                  email: true,
-                  isActive: true,
-                  name: true,
-                },
-              },
-              userId: true,
+              name: true,
             },
-          }),
-          transaction.attendanceVisit.count({ where: historyScope }),
-        ]);
+          },
+          userId: true,
+        },
+      });
+      const totalCount = await transaction.attendanceVisit.count({
+        where: historyScope,
+      });
       const totalPages = Math.max(
         1,
         Math.ceil(totalCount / ATTENDANCE_HISTORY_PAGE_SIZE),
@@ -192,28 +179,14 @@ export async function getManagerAttendanceData(
         ],
         take: ATTENDANCE_HISTORY_PAGE_SIZE + 1,
         select: {
-          checkInManager: {
-            select: { user: { select: { name: true } } },
-          },
+          checkInManagerUserId: true,
           checkInMethod: true,
-          checkOutManager: {
-            select: { user: { select: { name: true } } },
-          },
+          checkOutManagerUserId: true,
           checkOutMethod: true,
           checkedInAt: true,
           checkedOutAt: true,
           id: true,
-          membership: {
-            select: {
-              user: {
-                select: {
-                  email: true,
-                  name: true,
-                },
-              },
-              userId: true,
-            },
-          },
+          userId: true,
         },
       });
       const hasExtraEntry =
@@ -225,6 +198,46 @@ export async function getManagerAttendanceData(
       const historyEntries = isPreviousPage
         ? pageHistoryEntries.reverse()
         : pageHistoryEntries;
+      const managerUserIds = [
+        ...currentPresence.map((visit) => visit.checkInManagerUserId),
+        ...historyEntries.flatMap((visit) => [
+          visit.checkInManagerUserId,
+          visit.checkOutManagerUserId,
+        ]),
+      ].filter((userId): userId is string => userId !== null);
+      const managerMemberships =
+        managerUserIds.length === 0
+          ? []
+          : await transaction.labMembership.findMany({
+              where: { labId, userId: { in: managerUserIds } },
+              select: {
+                user: { select: { name: true } },
+                userId: true,
+              },
+            });
+      const attendeesByUserId = new Map(
+        registeredAttendees.map((membership) => [
+          membership.userId,
+          membership,
+        ]),
+      );
+      const managerNamesByUserId = new Map(
+        managerMemberships.map((membership) => [
+          membership.userId,
+          membership.user.name,
+        ]),
+      );
+      const getAttendee = (userId: string) => {
+        const attendee = attendeesByUserId.get(userId);
+
+        if (attendee === undefined) {
+          throw new Error('Attendance visit has no attendee membership.');
+        }
+
+        return attendee;
+      };
+      const getManagerName = (userId: string | null) =>
+        userId === null ? null : (managerNamesByUserId.get(userId) ?? null);
 
       return {
         attendanceSchedule: {
@@ -232,30 +245,38 @@ export async function getManagerAttendanceData(
           isOpen: attendancePolicy.isOpen,
           opensAtMinute: attendancePolicy.attendanceOpensAtMinute,
         },
-        currentPresence: currentPresence.map((visit) => ({
-          checkInManagerName: visit.checkInManager?.user.name ?? null,
-          checkInMethod: visit.checkInMethod,
-          checkedInAt: visit.checkedInAt,
-          email: visit.membership.user.email,
-          isAccountActive: visit.membership.user.isActive,
-          isMembershipActive: visit.membership.isActive,
-          name: visit.membership.user.name,
-          userId: visit.membership.userId,
-          visitId: visit.id,
-        })),
-        history: {
-          entries: historyEntries.map((visit) => ({
-            checkInManagerName: visit.checkInManager?.user.name ?? null,
+        currentPresence: currentPresence.map((visit) => {
+          const attendee = getAttendee(visit.userId);
+
+          return {
+            checkInManagerName: getManagerName(visit.checkInManagerUserId),
             checkInMethod: visit.checkInMethod,
-            checkOutManagerName: visit.checkOutManager?.user.name ?? null,
-            checkOutMethod: visit.checkOutMethod,
             checkedInAt: visit.checkedInAt,
-            checkedOutAt: visit.checkedOutAt,
-            email: visit.membership.user.email,
-            name: visit.membership.user.name,
-            userId: visit.membership.userId,
+            email: attendee.user.email,
+            isAccountActive: attendee.user.isActive,
+            isMembershipActive: attendee.isActive,
+            name: attendee.user.name,
+            userId: visit.userId,
             visitId: visit.id,
-          })),
+          };
+        }),
+        history: {
+          entries: historyEntries.map((visit) => {
+            const attendee = getAttendee(visit.userId);
+
+            return {
+              checkInManagerName: getManagerName(visit.checkInManagerUserId),
+              checkInMethod: visit.checkInMethod,
+              checkOutManagerName: getManagerName(visit.checkOutManagerUserId),
+              checkOutMethod: visit.checkOutMethod,
+              checkedInAt: visit.checkedInAt,
+              checkedOutAt: visit.checkedOutAt,
+              email: attendee.user.email,
+              name: attendee.user.name,
+              userId: visit.userId,
+              visitId: visit.id,
+            };
+          }),
           hasNext: requestedCursor?.direction === 'previous' || hasExtraEntry,
           hasPrevious:
             page > 1 &&

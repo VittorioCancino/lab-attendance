@@ -86,30 +86,28 @@ async function main(): Promise<void> {
           timezone: selectSafeTimezone(now),
         },
       });
-      const [, manager, attendee] = await Promise.all([
-        transaction.user.create({
-          data: {
-            email: e2eAccounts.administrator.email,
-            isGlobalAdmin: true,
-            name: e2eAccounts.administrator.name,
-            passwordHash: administratorPasswordHash,
-          },
-        }),
-        transaction.user.create({
-          data: {
-            email: e2eAccounts.manager.email,
-            name: e2eAccounts.manager.name,
-            passwordHash: managerPasswordHash,
-          },
-        }),
-        transaction.user.create({
-          data: {
-            email: e2eAccounts.attendee.email,
-            name: e2eAccounts.attendee.name,
-            passwordHash: attendeePasswordHash,
-          },
-        }),
-      ]);
+      await transaction.user.create({
+        data: {
+          email: e2eAccounts.administrator.email,
+          isGlobalAdmin: true,
+          name: e2eAccounts.administrator.name,
+          passwordHash: administratorPasswordHash,
+        },
+      });
+      const manager = await transaction.user.create({
+        data: {
+          email: e2eAccounts.manager.email,
+          name: e2eAccounts.manager.name,
+          passwordHash: managerPasswordHash,
+        },
+      });
+      const attendee = await transaction.user.create({
+        data: {
+          email: e2eAccounts.attendee.email,
+          name: e2eAccounts.attendee.name,
+          passwordHash: attendeePasswordHash,
+        },
+      });
 
       await transaction.labMembership.createMany({
         data: [

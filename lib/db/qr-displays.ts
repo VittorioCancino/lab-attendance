@@ -1,6 +1,10 @@
 import 'server-only';
 
-import { Prisma, type PrismaClient } from '@/app/generated/prisma/client';
+import {
+  Prisma,
+  type LabMembershipRole,
+  type PrismaClient,
+} from '@/app/generated/prisma/client';
 import {
   generateDisplayActivationCode,
   generateDisplaySessionToken,
@@ -44,6 +48,18 @@ export type RedeemQrDisplayActivationResult =
   | { ok: false };
 
 export type RevokeQrDisplayResult = 'NOT_AUTHORIZED' | 'NOT_FOUND' | 'REVOKED';
+
+interface RedeemableDisplayActivationRow {
+  expiresAt: Date;
+  id: string;
+  isAccountActive: boolean;
+  isLabActive: boolean;
+  isMembershipActive: boolean;
+  label: string;
+  revokedAt: Date | null;
+  role: LabMembershipRole;
+  sessionId: string | null;
+}
 
 async function hasActiveManagerAccess(
   transaction: Prisma.TransactionClient,
@@ -205,53 +221,50 @@ export async function redeemQrDisplayActivation(
 
   try {
     return await client.$transaction(async (transaction) => {
-      const locked = await transaction.$queryRaw<{ id: string }[]>(
-        Prisma.sql`
-          SELECT "id"
-          FROM "QrDisplayActivation"
-          WHERE "labId" = ${input.labId}::uuid
-            AND "codeHash" = ${codeHash}
-          FOR UPDATE
-        `,
-      );
+      // One SQL statement avoids Prisma 7 relation fan-out on this locked
+      // transaction connection while preserving the authorization snapshot.
+      const activations = await transaction.$queryRaw<
+        RedeemableDisplayActivationRow[]
+      >(Prisma.sql`
+        SELECT
+          activation."id",
+          activation."expiresAt",
+          activation."label",
+          activation."revokedAt",
+          creator_membership."isActive" AS "isMembershipActive",
+          creator_membership."role",
+          creator."isActive" AS "isAccountActive",
+          lab."isActive" AS "isLabActive",
+          display_session."id" AS "sessionId"
+        FROM "QrDisplayActivation" AS activation
+        INNER JOIN "LabMembership" AS creator_membership
+          ON creator_membership."labId" = activation."labId"
+          AND creator_membership."userId" = activation."createdByUserId"
+        INNER JOIN "User" AS creator
+          ON creator."id" = creator_membership."userId"
+        INNER JOIN "Lab" AS lab
+          ON lab."id" = activation."labId"
+        LEFT JOIN "QrDisplaySession" AS display_session
+          ON display_session."labId" = activation."labId"
+          AND display_session."activationId" = activation."id"
+        WHERE activation."labId" = ${input.labId}::uuid
+          AND activation."codeHash" = ${codeHash}
+        FOR UPDATE OF activation
+      `);
+      const activation = activations.at(0);
 
-      if (locked.length !== 1) {
-        return { ok: false };
-      }
-
-      const activation = await transaction.qrDisplayActivation.findUnique({
-        where: {
-          labId_codeHash: { codeHash, labId: input.labId },
-        },
-        select: {
-          creatorMembership: {
-            select: {
-              isActive: true,
-              lab: { select: { isActive: true } },
-              role: true,
-              user: { select: { isActive: true } },
-            },
-          },
-          expiresAt: true,
-          id: true,
-          label: true,
-          revokedAt: true,
-          session: { select: { id: true } },
-        },
-      });
-
-      if (activation === null) {
+      if (activation === undefined) {
         return { ok: false };
       }
 
       if (
         activation.revokedAt !== null ||
         activation.expiresAt <= now ||
-        activation.session !== null ||
-        !activation.creatorMembership.isActive ||
-        activation.creatorMembership.role !== 'MANAGER' ||
-        !activation.creatorMembership.user.isActive ||
-        !activation.creatorMembership.lab.isActive
+        activation.sessionId !== null ||
+        !activation.isMembershipActive ||
+        activation.role !== 'MANAGER' ||
+        !activation.isAccountActive ||
+        !activation.isLabActive
       ) {
         return { ok: false };
       }

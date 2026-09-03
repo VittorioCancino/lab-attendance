@@ -70,6 +70,8 @@ export default async function PublicDisplayPage() {
     lab.id,
     attendancePolicy.now,
   );
+  const refreshAfterMs =
+    qr.refreshAt.getTime() - attendancePolicy.now.getTime();
   const scanUrl = new URL('/scan', environment.LAB_INSTANCE_PUBLIC_URL);
   const expirationFormatter = new Intl.DateTimeFormat('es-CL', {
     dateStyle: 'medium',
@@ -81,7 +83,7 @@ export default async function PublicDisplayPage() {
 
   return (
     <main className="grid min-h-screen place-items-center bg-slate-950 px-5 py-8 text-white">
-      <QrDisplayRefresh refreshAt={qr.refreshAt.getTime()} />
+      <QrDisplayRefresh refreshAfterMs={refreshAfterMs} />
       <section className="grid w-full max-w-6xl gap-8 lg:grid-cols-[minmax(19rem,0.72fr)_minmax(24rem,1.28fr)] lg:items-center">
         <div>
           <div className="flex items-center gap-3">
