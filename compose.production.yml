@@ -1,0 +1,111 @@
+x-instance-service: &instance-service
+  env_file:
+    - ${LAB_ATTENDANCE_ENV_FILE:-.env.production}
+  init: true
+  restart: 'no'
+
+services:
+  instance-check:
+    <<: *instance-service
+    build:
+      context: .
+      target: operations
+    command:
+      - db:bootstrap
+    environment:
+      INSTANCE_BOOTSTRAP_ENABLED: 'false'
+    image: ${LAB_ATTENDANCE_OPERATIONS_IMAGE:-lab-attendance-operations:local}
+
+  app:
+    <<: *instance-service
+    build:
+      context: .
+      target: runtime
+    cap_drop:
+      - ALL
+    depends_on:
+      instance-check:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3000/api/health/ready')
+          .then((response) => { if (!response.ok) process.exitCode = 1 })
+          .catch(() => { process.exitCode = 1 })
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    image: ${LAB_ATTENDANCE_IMAGE:-lab-attendance:local}
+    ports:
+      - '127.0.0.1:${LAB_ATTENDANCE_PORT:-3000}:3000'
+    read_only: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    tmpfs:
+      - /tmp:mode=1777
+      - /app/.next/cache:uid=1001,gid=1001,mode=0700
+
+  attendance-close-scheduler:
+    <<: *instance-service
+    cap_drop:
+      - ALL
+    command:
+      - node
+      - scripts/attendance-close-scheduler.mjs
+    depends_on:
+      app:
+        condition: service_healthy
+    env_file:
+      - ${LAB_ATTENDANCE_SCHEDULER_ENV_FILE:-.env.scheduler.production}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - scripts/check-attendance-close-scheduler.mjs
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 3m
+    image: ${LAB_ATTENDANCE_IMAGE:-lab-attendance:local}
+    read_only: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 15s
+    tmpfs:
+      - /tmp:uid=1001,gid=1001,mode=0700
+
+  migrate:
+    <<: *instance-service
+    build:
+      context: .
+      target: operations
+    command:
+      - db:migrate:deploy
+    image: ${LAB_ATTENDANCE_OPERATIONS_IMAGE:-lab-attendance-operations:local}
+    profiles:
+      - operations
+
+  migration-status:
+    <<: *instance-service
+    command:
+      - db:migrate:status
+    image: ${LAB_ATTENDANCE_OPERATIONS_IMAGE:-lab-attendance-operations:local}
+    profiles:
+      - operations
+
+  instance-bootstrap:
+    <<: *instance-service
+    command:
+      - db:bootstrap
+    environment:
+      INSTANCE_BOOTSTRAP_ENABLED: 'true'
+    image: ${LAB_ATTENDANCE_OPERATIONS_IMAGE:-lab-attendance-operations:local}
+    profiles:
+      - bootstrap

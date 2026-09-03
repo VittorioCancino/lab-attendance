@@ -1,0 +1,201 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum LabMembershipRole {
+  MANAGER
+  ATTENDEE
+}
+
+enum AttendanceScanAction {
+  CHECK_IN
+  CHECK_OUT
+}
+
+enum AttendanceMethod {
+  QR
+  MANAGER
+  SYSTEM
+}
+
+enum RateLimitAction {
+  AUTH_CREDENTIALS
+  INVITATION_ACCEPTANCE
+  QR_EXCHANGE
+  ATTENDANCE_CONFIRMATION
+  DISPLAY_ACTIVATION
+}
+
+model Lab {
+  id                       String               @id @default(uuid()) @db.Uuid
+  slug                     String               @unique @db.VarChar(63)
+  name                     String               @db.VarChar(160)
+  timezone                 String               @db.VarChar(64)
+  attendanceOpensAtMinute  Int                  @default(420) @db.SmallInt
+  attendanceClosesAtMinute Int                  @default(1080) @db.SmallInt
+  isActive                 Boolean              @default(true)
+  createdAt                DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt                DateTime             @updatedAt @db.Timestamptz(3)
+  attendanceCronState      AttendanceCronState?
+  invitations              LabInvitation[]
+  memberships              LabMembership[]
+  rateLimitBuckets         RateLimitBucket[]
+}
+
+model AttendanceCronState {
+  labId           String   @id @db.Uuid
+  lastSucceededAt DateTime @db.Timestamptz(3)
+  lab             Lab      @relation(fields: [labId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id                  String          @id @default(uuid()) @db.Uuid
+  email               String          @unique @db.VarChar(254)
+  name                String          @db.VarChar(160)
+  passwordHash        String          @db.VarChar(255)
+  sessionVersion      Int             @default(0)
+  isGlobalAdmin       Boolean         @default(false)
+  isActive            Boolean         @default(true)
+  createdAt           DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime        @updatedAt @db.Timestamptz(3)
+  acceptedInvitations LabInvitation[] @relation("InvitationAcceptor")
+  sentInvitations     LabInvitation[] @relation("InvitationInviter")
+  memberships         LabMembership[]
+}
+
+model LabMembership {
+  labId                     String                @db.Uuid
+  userId                    String                @db.Uuid
+  role                      LabMembershipRole
+  isActive                  Boolean               @default(true)
+  createdAt                 DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt                 DateTime              @updatedAt @db.Timestamptz(3)
+  lab                       Lab                   @relation(fields: [labId], references: [id], onDelete: Restrict)
+  user                      User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  attendanceVisits          AttendanceVisit[]     @relation("AttendanceVisitMembership")
+  managedCheckIns           AttendanceVisit[]     @relation("AttendanceVisitCheckInManager")
+  managedCheckOuts          AttendanceVisit[]     @relation("AttendanceVisitCheckOutManager")
+  createdDisplayActivations QrDisplayActivation[] @relation("QrDisplayActivationCreator")
+  revokedDisplayActivations QrDisplayActivation[] @relation("QrDisplayActivationRevoker")
+  revokedDisplaySessions    QrDisplaySession[]    @relation("QrDisplaySessionRevoker")
+
+  @@id([labId, userId])
+  @@index([userId])
+}
+
+model LabInvitation {
+  id               String            @id @default(uuid()) @db.Uuid
+  labId            String            @db.Uuid
+  email            String            @db.VarChar(254)
+  name             String            @db.VarChar(160)
+  role             LabMembershipRole
+  tokenHash        String            @unique @db.Char(64)
+  expiresAt        DateTime          @db.Timestamptz(3)
+  acceptedAt       DateTime?         @db.Timestamptz(3)
+  revokedAt        DateTime?         @db.Timestamptz(3)
+  invitedByUserId  String            @db.Uuid
+  acceptedByUserId String?           @db.Uuid
+  createdAt        DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime          @updatedAt @db.Timestamptz(3)
+  lab              Lab               @relation(fields: [labId], references: [id], onDelete: Restrict)
+  invitedBy        User              @relation("InvitationInviter", fields: [invitedByUserId], references: [id], onDelete: Restrict)
+  acceptedBy       User?             @relation("InvitationAcceptor", fields: [acceptedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([labId, role, createdAt])
+  @@index([labId, email])
+  @@index([invitedByUserId])
+  @@index([acceptedByUserId])
+}
+
+model AttendanceVisit {
+  id                    String            @id @default(uuid()) @db.Uuid
+  labId                 String            @db.Uuid
+  userId                String            @db.Uuid
+  checkedInAt           DateTime          @default(now()) @db.Timestamptz(3)
+  checkInMethod         AttendanceMethod  @default(QR)
+  checkInManagerUserId  String?           @db.Uuid
+  checkedOutAt          DateTime?         @db.Timestamptz(3)
+  checkOutMethod        AttendanceMethod?
+  checkOutManagerUserId String?           @db.Uuid
+  membership            LabMembership     @relation("AttendanceVisitMembership", fields: [labId, userId], references: [labId, userId], onDelete: Restrict)
+  checkInManager        LabMembership?    @relation("AttendanceVisitCheckInManager", fields: [labId, checkInManagerUserId], references: [labId, userId], onDelete: Restrict)
+  checkOutManager       LabMembership?    @relation("AttendanceVisitCheckOutManager", fields: [labId, checkOutManagerUserId], references: [labId, userId], onDelete: Restrict)
+  scans                 AttendanceScan[]
+
+  @@unique([labId, userId, id])
+  @@index([labId, checkedInAt(sort: Desc), id(sort: Desc)])
+  @@index([labId, userId, checkedInAt(sort: Desc)])
+  @@index([labId, checkInManagerUserId])
+  @@index([labId, checkOutManagerUserId])
+}
+
+model QrDisplayActivation {
+  id                String            @id @default(uuid()) @db.Uuid
+  labId             String            @db.Uuid
+  createdByUserId   String            @db.Uuid
+  revokedByUserId   String?           @db.Uuid
+  label             String            @db.VarChar(80)
+  codeHash          String            @db.Char(64)
+  expiresAt         DateTime          @db.Timestamptz(3)
+  revokedAt         DateTime?         @db.Timestamptz(3)
+  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
+  creatorMembership LabMembership     @relation("QrDisplayActivationCreator", fields: [labId, createdByUserId], references: [labId, userId], onDelete: Restrict)
+  revokerMembership LabMembership?    @relation("QrDisplayActivationRevoker", fields: [labId, revokedByUserId], references: [labId, userId], onDelete: Restrict)
+  session           QrDisplaySession?
+
+  @@unique([labId, id])
+  @@unique([labId, codeHash])
+  @@index([labId, expiresAt])
+  @@index([labId, createdByUserId])
+  @@index([labId, revokedByUserId])
+}
+
+model QrDisplaySession {
+  id                  String              @id @default(uuid()) @db.Uuid
+  labId               String              @db.Uuid
+  activationId        String              @db.Uuid
+  tokenHash           String              @db.Char(64)
+  expiresAt           DateTime            @db.Timestamptz(3)
+  revokedAt           DateTime?           @db.Timestamptz(3)
+  revokedByUserId     String?             @db.Uuid
+  createdAt           DateTime            @default(now()) @db.Timestamptz(3)
+  activation          QrDisplayActivation @relation(fields: [labId, activationId], references: [labId, id], onDelete: Restrict)
+  revokedByMembership LabMembership?      @relation("QrDisplaySessionRevoker", fields: [labId, revokedByUserId], references: [labId, userId], onDelete: Restrict)
+
+  @@unique([labId, activationId])
+  @@unique([labId, tokenHash])
+  @@index([labId, revokedAt, expiresAt])
+  @@index([labId, revokedByUserId])
+}
+
+model AttendanceScan {
+  id        String               @id @default(uuid()) @db.Uuid
+  labId     String               @db.Uuid
+  userId    String               @db.Uuid
+  visitId   String               @db.Uuid
+  qrWindow  Int
+  action    AttendanceScanAction
+  scannedAt DateTime             @default(now()) @db.Timestamptz(3)
+  visit     AttendanceVisit      @relation(fields: [labId, userId, visitId], references: [labId, userId, id], onDelete: Restrict)
+
+  @@unique([labId, userId, qrWindow])
+  @@unique([labId, userId, visitId, action])
+}
+
+model RateLimitBucket {
+  labId           String          @db.Uuid
+  action          RateLimitAction
+  subjectHash     String          @db.Char(64)
+  windowStartedAt DateTime        @db.Timestamptz(3)
+  windowEndsAt    DateTime        @db.Timestamptz(3)
+  requestCount    Int             @default(1)
+  lab             Lab             @relation(fields: [labId], references: [id], onDelete: Cascade)
+
+  @@id([labId, action, subjectHash])
+  @@index([labId, windowEndsAt])
+}

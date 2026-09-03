@@ -1,0 +1,9 @@
+.agents/
+.claude/
+.next/
+app/generated/
+coverage/
+node_modules/
+AGENTS.md
+CLAUDE.md
+package-lock.json

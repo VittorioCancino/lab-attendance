@@ -1,0 +1,38 @@
+# Dependencies
+/node_modules/
+/.pnp
+.pnp.*
+
+# Next.js
+/.next/
+/out/
+/build/
+
+# Tests and coverage
+/blob-report/
+/coverage/
+/playwright-report/
+/test-results/
+
+# Environment files
+.env*
+!.env.example
+!.env.scheduler.example
+
+# Generated files
+/app/generated/
+*.tsbuildinfo
+next-env.d.ts
+
+# Logs and local tooling
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+.vercel/
+
+# Local agent configuration and tooling
+/.agents/
+/.claude/
+/AGENTS.md
+/CLAUDE.md
