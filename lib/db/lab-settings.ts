@@ -33,7 +33,7 @@ export async function updateLabCapacity(
     select: { isActive: true, maxOccupancy: true },
   });
 
-  if (lab === null || !lab.isActive) {
+  if (!lab?.isActive) {
     return { ok: false, reason: 'NOT_AUTHORIZED' };
   }
 

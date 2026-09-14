@@ -44,9 +44,14 @@ export const statsCapacityFormSchema = z
     maxOccupancy: z
       .string()
       .regex(/^\d*$/, 'La capacidad debe ser un número entero.')
-      .refine((value) => value === '' || (Number(value) >= 1 && Number(value) <= 10000), {
-        message: 'La capacidad debe estar entre 1 y 10000 (o vacío para quitarla).',
-      }),
+      .refine(
+        (value) =>
+          value === '' || (Number(value) >= 1 && Number(value) <= 10000),
+        {
+          message:
+            'La capacidad debe estar entre 1 y 10000 (o vacío para quitarla).',
+        },
+      ),
   })
   .strict();
 

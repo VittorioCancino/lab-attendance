@@ -115,7 +115,11 @@ export function getDayBounds(
   ];
   const start = zonedTimeToUtc(year, month, day, 0, 0, timezone);
   const nextKey = addOneDayKey(dayKey);
-  const [ny, nm, nd] = nextKey.split('-').map(Number) as [number, number, number];
+  const [ny, nm, nd] = nextKey.split('-').map(Number) as [
+    number,
+    number,
+    number,
+  ];
   return {
     end: zonedTimeToUtc(ny, nm, nd, 0, 0, timezone),
     start,
@@ -253,7 +257,7 @@ export async function getStatsLab(
       timezone: true,
     },
   });
-  if (lab === null || !lab.isActive) return null;
+  if (!lab?.isActive) return null;
   return lab;
 }
 
@@ -334,7 +338,9 @@ export async function getPresentNow(
       checkInMethod: true,
       checkedInAt: true,
       id: true,
-      membership: { select: { user: { select: { email: true, name: true } }, userId: true } },
+      membership: {
+        select: { user: { select: { email: true, name: true } }, userId: true },
+      },
     },
     orderBy: [{ checkedInAt: 'asc' }],
   });
@@ -389,9 +395,14 @@ export async function getMonthSummary(
     lab.attendanceClosesAtMinute - lab.attendanceOpensAtMinute;
   const openHours = (businessDaysTotal * openMinutesPerDay) / 60;
   const hoursAvailable =
-    lab.maxOccupancy === null ? null : (lab.maxOccupancy * openHours);
+    lab.maxOccupancy === null ? null : lab.maxOccupancy * openHours;
 
-  const visits = await loadVisitsOverlapping(client, labId, monthStart, monthEnd);
+  const visits = await loadVisitsOverlapping(
+    client,
+    labId,
+    monthStart,
+    monthEnd,
+  );
   const directory = await loadUserDirectory(client, labId);
 
   let usedMinutes = 0;
@@ -549,12 +560,24 @@ export async function getHourlyAverage(
     const startKey = earliest
       ? toDateKey(earliest.checkedInAt, lab.timezone)
       : toDateKey(effectiveNow, lab.timezone);
-    const [sy, sm, sd] = startKey.split('-').map(Number) as [number, number, number];
+    const [sy, sm, sd] = startKey.split('-').map(Number) as [
+      number,
+      number,
+      number,
+    ];
     rangeStart = zonedTimeToUtc(sy, sm, sd, 0, 0, lab.timezone);
-    businessKeys = enumerateBusinessKeysBetween(startKey, toDateKey(effectiveNow, lab.timezone));
+    businessKeys = enumerateBusinessKeysBetween(
+      startKey,
+      toDateKey(effectiveNow, lab.timezone),
+    );
   }
 
-  const visits = await loadVisitsOverlapping(client, labId, rangeStart, rangeEnd);
+  const visits = await loadVisitsOverlapping(
+    client,
+    labId,
+    rangeStart,
+    rangeEnd,
+  );
 
   const opensHour = Math.floor(lab.attendanceOpensAtMinute / 60);
   const closesHour = Math.ceil(lab.attendanceClosesAtMinute / 60);
@@ -562,9 +585,20 @@ export async function getHourlyAverage(
   for (let hour = opensHour; hour < closesHour; hour += 1) totals.set(hour, 0);
 
   for (const dayKey of businessKeys) {
-    const [year, month, day] = dayKey.split('-').map(Number) as [number, number, number];
+    const [year, month, day] = dayKey.split('-').map(Number) as [
+      number,
+      number,
+      number,
+    ];
     for (let hour = opensHour; hour < closesHour; hour += 1) {
-      const bucketStart = zonedTimeToUtc(year, month, day, hour, 0, lab.timezone);
+      const bucketStart = zonedTimeToUtc(
+        year,
+        month,
+        day,
+        hour,
+        0,
+        lab.timezone,
+      );
       const bucketEnd = new Date(bucketStart.getTime() + 3_600_000);
       if (bucketStart >= rangeEnd || bucketEnd <= rangeStart) continue;
       let occupancy = 0;
@@ -573,7 +607,8 @@ export async function getHourlyAverage(
           visit.checkedOutAt === null || visit.checkedOutAt > effectiveNow
             ? effectiveNow
             : visit.checkedOutAt;
-        if (visit.checkedInAt < bucketEnd && visitEnd > bucketStart) occupancy += 1;
+        if (visit.checkedInAt < bucketEnd && visitEnd > bucketStart)
+          occupancy += 1;
       }
       totals.set(hour, (totals.get(hour) ?? 0) + occupancy);
     }
@@ -589,7 +624,10 @@ export async function getHourlyAverage(
   return { businessDays: businessKeys.length, lab, points };
 }
 
-function enumerateBusinessKeysBetween(startKey: string, endKey: string): string[] {
+function enumerateBusinessKeysBetween(
+  startKey: string,
+  endKey: string,
+): string[] {
   const keys: string[] = [];
   let cursor = startKey;
   let guard = 0;
@@ -615,7 +653,10 @@ export async function getEntriesByDay(
   const lab = await getStatsLab(client, labId);
   if (lab === null) throw new Error('The configured lab is not available.');
 
-  const { end: monthEnd, start: monthStart } = getMonthBounds(monthKey, lab.timezone);
+  const { end: monthEnd, start: monthStart } = getMonthBounds(
+    monthKey,
+    lab.timezone,
+  );
   const visits = await client.attendanceVisit.findMany({
     where: {
       labId,
@@ -671,7 +712,12 @@ export async function getTopUsersByTime(
     rangeEnd = effectiveNow;
   }
 
-  const visits = await loadVisitsOverlapping(client, labId, rangeStart, rangeEnd);
+  const visits = await loadVisitsOverlapping(
+    client,
+    labId,
+    rangeStart,
+    rangeEnd,
+  );
   const directory = await loadUserDirectory(client, labId);
 
   const totals = new Map<string, { minutes: number; visits: number }>();
@@ -680,7 +726,12 @@ export async function getTopUsersByTime(
       visit.checkedOutAt === null || visit.checkedOutAt > effectiveNow
         ? effectiveNow
         : visit.checkedOutAt;
-    const minutes = overlapMinutes(visit.checkedInAt, visitEnd, rangeStart, rangeEnd);
+    const minutes = overlapMinutes(
+      visit.checkedInAt,
+      visitEnd,
+      rangeStart,
+      rangeEnd,
+    );
     if (minutes <= 0) continue;
     const current = totals.get(visit.userId) ?? { minutes: 0, visits: 0 };
     current.minutes += minutes;
@@ -696,7 +747,10 @@ export async function getTopUsersByTime(
       userId,
       visitCount: total.visits,
     }))
-    .sort((a, b) => b.totalMinutes - a.totalMinutes || a.name.localeCompare('es-CL'));
+    .sort(
+      (a, b) =>
+        b.totalMinutes - a.totalMinutes || a.name.localeCompare('es-CL'),
+    );
 
   return { entries, lab };
 }

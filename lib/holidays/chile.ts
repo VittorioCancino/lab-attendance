@@ -65,7 +65,11 @@ function mondayized(year: number, month: number, day: number): string {
   } else if (dow === 5) {
     date.setUTCDate(date.getUTCDate() + 3);
   }
-  return toKey(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
+  return toKey(
+    date.getUTCFullYear(),
+    date.getUTCMonth() + 1,
+    date.getUTCDate(),
+  );
 }
 
 /**
