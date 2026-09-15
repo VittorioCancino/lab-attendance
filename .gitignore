@@ -34,5 +34,11 @@ yarn-error.log*
 # Local agent configuration and tooling
 /.agents/
 /.claude/
+/.windsurf/
 /AGENTS.md
 /CLAUDE.md
+/skills-lock.json
+
+# Lambda / agent layer bundles (build artifacts, never commit)
+*-agent-layer.zip
+*-agent-layer/
