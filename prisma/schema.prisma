@@ -38,6 +38,7 @@ model Lab {
   timezone                 String               @db.VarChar(64)
   attendanceOpensAtMinute  Int                  @default(420) @db.SmallInt
   attendanceClosesAtMinute Int                  @default(1080) @db.SmallInt
+  maxOccupancy             Int?                 @db.SmallInt
   isActive                 Boolean              @default(true)
   createdAt                DateTime             @default(now()) @db.Timestamptz(3)
   updatedAt                DateTime             @updatedAt @db.Timestamptz(3)

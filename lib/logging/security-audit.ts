@@ -75,9 +75,10 @@ interface AttendanceManagementAuditEvent {
   actorUserId: string;
   event: 'ATTENDANCE_MANAGEMENT';
   labId: string;
-  operation: 'RECORD' | 'UPDATE_SCHEDULE';
+  operation: 'RECORD' | 'UPDATE_CAPACITY' | 'UPDATE_SCHEDULE';
   outcome: AuditOutcome;
   reason:
+    | 'CAPACITY_UPDATED'
     | 'CHECK_IN_CLOSED'
     | 'INVALID_INPUT'
     | 'NOT_AUTHORIZED'

@@ -8,6 +8,7 @@ const navigation = [
   { href: '/manager/users', label: 'Usuarios' },
   { href: '/manager/attendance', label: 'Asistencia' },
   { href: '/manager/displays', label: 'Pantallas QR' },
+  { href: '/manager/stats', label: 'Estadísticas' },
 ] as const;
 
 export function ManagerNavigation() {
